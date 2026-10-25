@@ -56,7 +56,6 @@
         <span id="cloudStatus">☁️ Connexion au Cloud en cours...</span>
         <div style="display: flex; gap: 10px;">
             <button class="action-btn" style="background: #16a34a; padding: 7px 14px; font-size: 13px;" onclick="sauvegarderJSON()">💾 1. Sauvegarder</button>
-            
             <input type="file" id="importFile" accept=".json" style="display:none" onchange="importerFichierJSON(event)">
             <button class="action-btn" style="background: #0284c7; padding: 7px 14px; font-size: 13px;" onclick="document.getElementById('importFile').click()">📂 2. Importer</button>
         </div>
@@ -90,7 +89,7 @@
                 <div class="stat-card"><h3>Reste à Payer (Solde)</h3><p id="statSolde" style="color: var(--danger);">0 DA</p></div>
             </div>
 
-            <!-- BLOC RÉDUCTION GLOBALE -->
+            <!-- BLOC RÉDUCTION GLOBALE SUR LA FICHE CLIENT -->
             <div class="reduc-box no-print">
                 <div style="flex: 1;">
                     <label>Type de réduction globale</label>
@@ -227,13 +226,13 @@
     };
 
     firebase.initializeApp(firebaseConfig);
-    const db = firebase.firestore();
+    const dbCloud = firebase.firestore();
 
     let appData = { clients: [], produits: [], achats: [], paiements: [] };
     let critereTri = 'date';
 
     function demarrerSyncCloud() {
-        db.collection("clients").onSnapshot(snapshot => {
+        dbCloud.collection("clients").onSnapshot(snapshot => {
             appData.clients = [];
             snapshot.forEach(doc => appData.clients.push({ id: doc.id, ...doc.data() }));
             majInterface();
@@ -243,26 +242,25 @@
             console.error(err);
         });
 
-        db.collection("produits").onSnapshot(snapshot => {
+        dbCloud.collection("produits").onSnapshot(snapshot => {
             appData.produits = [];
             snapshot.forEach(doc => appData.produits.push({ id: doc.id, ...doc.data() }));
             majInterface();
         });
 
-        db.collection("achats").onSnapshot(snapshot => {
+        dbCloud.collection("achats").onSnapshot(snapshot => {
             appData.achats = [];
             snapshot.forEach(doc => appData.achats.push({ id: doc.id, ...doc.data() }));
             majInterface();
         });
 
-        db.collection("paiements").onSnapshot(snapshot => {
+        dbCloud.collection("paiements").onSnapshot(snapshot => {
             appData.paiements = [];
             snapshot.forEach(doc => appData.paiements.push({ id: doc.id, ...doc.data() }));
             majInterface();
         });
     }
 
-    // 1. FONCTION DE SAUVEGARDE (EXPORT JSON)
     function sauvegarderJSON() {
         let dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(appData, null, 2));
         let downloadAnchor = document.createElement('a');
@@ -273,7 +271,6 @@
         downloadAnchor.remove();
     }
 
-    // 2. FONCTION D'IMPORTATION (IMPORT JSON)
     async function importerFichierJSON(event) {
         let file = event.target.files[0];
         if (!file) return;
@@ -285,16 +282,16 @@
                 if (!confirm("Voulez-vous importer ces données dans le Cloud ?")) return;
 
                 if (data.clients && Array.isArray(data.clients)) {
-                    for (let c of data.clients) { delete c.id; await db.collection("clients").add(c); }
+                    for (let c of data.clients) { delete c.id; await dbCloud.collection("clients").add(c); }
                 }
                 if (data.produits && Array.isArray(data.produits)) {
-                    for (let p of data.produits) { delete p.id; await db.collection("produits").add(p); }
+                    for (let p of data.produits) { delete p.id; await dbCloud.collection("produits").add(p); }
                 }
                 if (data.achats && Array.isArray(data.achats)) {
-                    for (let a of data.achats) { delete a.id; await db.collection("achats").add(a); }
+                    for (let a of data.achats) { delete a.id; await dbCloud.collection("achats").add(a); }
                 }
                 if (data.paiements && Array.isArray(data.paiements)) {
-                    for (let pay of data.paiements) { delete pay.id; await db.collection("paiements").add(pay); }
+                    for (let pay of data.paiements) { delete pay.id; await dbCloud.collection("paiements").add(pay); }
                 }
 
                 alert("Importation réussie ! Vos données sont maintenant dans le Cloud.");
@@ -306,7 +303,7 @@
     }
 
     function majInterface() {
-        rempliListesSelects();
+        rempliListes();
         let activeTab = document.querySelector('.panel.active').id;
         if(activeTab === 'recherche') afficherHistoriqueClient();
         if(activeTab === 'global') afficherHistoriqueGlobal();
@@ -327,15 +324,16 @@
         let adresse = document.getElementById('cliAdresse').value;
         let ancienCredit = parseFloat(document.getElementById('cliAncienCredit').value) || 0;
         let docId = document.getElementById('editClientDocId').value;
+
         if(!nom) return alert('Veuillez entrer un nom.');
 
         try {
             if(docId === "") {
-                await db.collection("clients").add({ nom, tel, adresse, ancienCredit, reducType: 'montant', reducVal: 0 });
+                await dbCloud.collection("clients").add({ nom, tel, adresse, ancienCredit, reducType: 'montant', reducVal: 0 });
                 alert('Client enregistré dans le Cloud !');
             } else {
-                await db.collection("clients").doc(docId).update({ nom, tel, adresse, ancienCredit });
-                alert('Client mis à jour !');
+                await dbCloud.collection("clients").doc(docId).update({ nom, tel, adresse, ancienCredit });
+                alert('Client modifié avec succès !');
                 annulerEditClient();
             }
             document.getElementById('cliNom').value = ''; document.getElementById('cliTel').value = ''; document.getElementById('cliAdresse').value = ''; document.getElementById('cliAncienCredit').value = '0';
@@ -357,29 +355,32 @@
 
     function annulerEditClient() {
         document.getElementById('cliNom').value = ''; document.getElementById('cliTel').value = ''; document.getElementById('cliAdresse').value = '';
-        document.getElementById('cliAncienCredit').value = '0'; document.getElementById('editClientDocId').value = "";
+        document.getElementById('cliAncienCredit').value = '0';
+        document.getElementById('editClientDocId').value = "";
         document.getElementById('titreClientForm').innerText = "Gestion des Clients (Ajout)";
         document.getElementById('btnValiderClient').innerText = "Enregistrer le client";
         document.getElementById('btnAnnulerClient').style.display = "none";
     }
 
     async function supprimerClient(id) {
-        if(confirm("Supprimer ce client du Cloud ?")) { await db.collection("clients").doc(id).delete(); }
+        if(confirm("Voulez-vous vraiment supprimer ce client ?")) {
+            await dbCloud.collection("clients").doc(id).delete();
+        }
     }
 
     async function enregistrerProduit() {
         let nom = document.getElementById('prodNom').value.trim();
-        let prix = parseFloat(document.getElementById('prodPrix').value);
+        let prix = document.getElementById('prodPrix').value;
         let docId = document.getElementById('editProduitDocId').value;
-        if(!nom || isNaN(prix)) return alert('Remplissez tous les champs.');
-
+        if(!nom || !prix) return alert('Remplissez tous les champs.');
+        
         try {
             if(docId === "") {
-                await db.collection("produits").add({ nom, prix });
+                await dbCloud.collection("produits").add({ nom, prix: parseFloat(prix) });
                 alert('Produit ajouté au catalogue Cloud !');
             } else {
-                await db.collection("produits").doc(docId).update({ nom, prix });
-                alert('Produit mis à jour !');
+                await dbCloud.collection("produits").doc(docId).update({ nom, prix: parseFloat(prix) });
+                alert('Produit modifié !');
                 annulerEditProduit();
             }
             document.getElementById('prodNom').value = ''; document.getElementById('prodPrix').value = '';
@@ -406,7 +407,9 @@
     }
 
     async function supprimerProduit(id) {
-        if(confirm("Supprimer ce produit ?")) { await db.collection("produits").doc(id).delete(); }
+        if(confirm("Voulez-vous supprimer ce produit du catalogue ?")) {
+            await dbCloud.collection("produits").doc(id).delete();
+        }
     }
 
     async function ajouterAchat() {
@@ -416,21 +419,23 @@
         let prix = parseFloat(document.getElementById('achatPrix').value) || 0;
         let date = document.getElementById('achatDate').value || new Date().toISOString().split('T')[0];
         let docId = document.getElementById('editAchatDocId').value;
+
         if(!client || !produit) return alert('Sélectionnez un client et un produit.');
 
         let total = qte * prix;
-        let obj = { client, produit, qte, prix, total, date };
+        let achatObj = { client, produit, qte, prix, total, date };
 
         try {
             if(docId === "") {
-                await db.collection("achats").add(obj);
-                alert('Achat enregistré en direct !');
+                await dbCloud.collection("achats").add(achatObj);
+                alert('Achat enregistré avec succès !');
             } else {
-                await db.collection("achats").doc(docId).update(obj);
-                alert('Achat mis à jour !');
+                await dbCloud.collection("achats").doc(docId).update(achatObj);
+                alert('Achat mis à jour avec succès !');
                 annulerEditAchat();
             }
             viderFormulaireAchat();
+            afficherHistoriqueClient();
         } catch(e) { alert("Erreur: " + e.message); }
     }
 
@@ -443,6 +448,7 @@
         document.getElementById('achatPrix').value = a.prix;
         document.getElementById('achatDate').value = a.date;
         document.getElementById('editAchatDocId').value = id;
+        
         document.getElementById('titreAchatForm').innerText = "Modifier l'achat";
         document.getElementById('btnValiderAchat').innerText = "Mettre à jour l'achat";
         document.getElementById('btnAnnulerAchat').style.display = "inline-block";
@@ -462,12 +468,19 @@
     }
 
     function viderFormulaireAchat() {
-        document.getElementById('achatClient').value = ""; document.getElementById('achatProduit').value = "";
-        document.getElementById('achatQte').value = "1"; document.getElementById('achatPrix').value = ""; document.getElementById('achatDate').value = "";
+        document.getElementById('achatClient').value = "";
+        document.getElementById('achatProduit').value = "";
+        document.getElementById('achatQte').value = "1";
+        document.getElementById('achatPrix').value = "";
+        document.getElementById('achatDate').value = "";
     }
 
     async function supprimerAchat(id) {
-        if(confirm("Supprimer cet achat ?")) { await db.collection("achats").doc(id).delete(); }
+        if(confirm("Voulez-vous supprimer cette ligne d'achat ?")) {
+            await dbCloud.collection("achats").doc(id).delete();
+            afficherHistoriqueClient();
+            afficherHistoriqueGlobal();
+        }
     }
 
     function gererChampNumero() {
@@ -485,28 +498,35 @@
         let mode = document.getElementById('paiementMode').value;
         let numero = document.getElementById('paiementNumero').value;
         let date = document.getElementById('paiementDate').value || new Date().toISOString().split('T')[0];
-
+        
         if(!client || !montant) return alert('Remplissez les champs obligatoires.');
         if((mode === 'Chèque' || mode === 'Virement') && !numero) return alert('Veuillez entrer le numéro.');
 
         try {
-            await db.collection("paiements").add({ client, montant, mode, numero: (mode !== 'Espèces' ? numero : '-'), date });
-            alert('Paiement enregistré dans le Cloud !');
+            await dbCloud.collection("paiements").add({ client, montant, mode, numero: (mode !== 'Espèces' ? numero : '-'), date });
+            alert('Paiement enregistré !');
             viderFormulairePaiement();
+            afficherHistoriqueClient();
         } catch(e) { alert("Erreur: " + e.message); }
     }
 
     function viderFormulairePaiement() {
-        document.getElementById('paiementClient').value = ""; document.getElementById('paiementMontant').value = "";
-        document.getElementById('paiementMode').value = "Espèces"; document.getElementById('paiementNumero').value = "";
-        document.getElementById('groupeNumero').style.display = "none"; document.getElementById('paiementDate').value = "";
+        document.getElementById('paiementClient').value = "";
+        document.getElementById('paiementMontant').value = "";
+        document.getElementById('paiementMode').value = "Espèces";
+        document.getElementById('paiementNumero').value = "";
+        document.getElementById('groupeNumero').style.display = "none";
+        document.getElementById('paiementDate').value = "";
     }
 
     async function supprimerPaiement(id) {
-        if(confirm("Supprimer ce paiement ?")) { await db.collection("paiements").doc(id).delete(); }
+        if(confirm("Voulez-vous supprimer ce versement ?")) {
+            await dbCloud.collection("paiements").doc(id).delete();
+            afficherHistoriqueClient();
+        }
     }
 
-    function rempliListesSelects() {
+    function remplirListes() {
         let clientsTries = [...appData.clients].sort((a, b) => a.nom.localeCompare(b.nom));
         let produitsTries = [...appData.produits].sort((a, b) => a.nom.localeCompare(b.nom));
 
@@ -556,6 +576,7 @@
         let clientNom = document.getElementById('selectClientRecherche').value;
         let container = document.getElementById('detailsClientContent');
         if(!clientNom) { container.style.display = 'none'; return; }
+        
         let clientObj = appData.clients.find(c => c.nom === clientNom);
         if(clientObj) {
             document.getElementById('typeReducClient').value = clientObj.reducType || 'montant';
@@ -567,12 +588,15 @@
     async function appliquerReductionClient() {
         let clientNom = document.getElementById('selectClientRecherche').value;
         if(!clientNom) return alert('Sélectionnez d\'abord un client.');
+
         let typeReduc = document.getElementById('typeReducClient').value;
         let valeurReduc = parseFloat(document.getElementById('valeurReducClient').value) || 0;
+
         let clientObj = appData.clients.find(c => c.nom === clientNom);
         if(clientObj) {
-            await db.collection("clients").doc(clientObj.id).update({ reducType: typeReduc, reducVal: valeurReduc });
-            alert('Réduction globale mise à jour !');
+            await dbCloud.collection("clients").doc(clientObj.id).update({ reducType: typeReduc, reducVal: valeurReduc });
+            alert('Réduction globale appliquée à la fiche du client !');
+            afficherHistoriqueClient();
         }
     }
 
@@ -583,6 +607,7 @@
         container.style.display = 'block';
 
         document.getElementById('titreClientFiche').innerText = "Fiche Client : " + clientNom;
+
         let achatsCli = appData.achats.filter(a => a.client === clientNom);
         let paiementsCli = appData.paiements.filter(p => p.client === clientNom);
 
@@ -595,8 +620,11 @@
 
         let totAchatsFinal = totAchatsBrut;
         if(reducVal > 0) {
-            if(reducType === 'montant') totAchatsFinal = totAchatsBrut - reducVal;
-            else totAchatsFinal = totAchatsBrut - (totAchatsBrut * (reducVal / 100));
+            if(reducType === 'montant') {
+                totAchatsFinal = totAchatsBrut - reducVal;
+            } else {
+                totAchatsFinal = totAchatsBrut - (totAchatsBrut * (reducVal / 100));
+            }
             if(totAchatsFinal < 0) totAchatsFinal = 0;
         }
 
@@ -604,7 +632,9 @@
         let solde = totAchatsFinal - totPaye;
 
         let affichageAchats = totAchatsBrut + ' DA';
-        if(ancienCredit > 0) affichageAchats += ` <span style="font-size: 12px; color: var(--warning);">(Inclus ancien crédit : ${ancienCredit} DA)</span>`;
+        if(ancienCredit > 0) {
+            affichageAchats += ` <span style="font-size: 12px; color: var(--warning);">(Inclus ancien crédit : ${ancienCredit} DA)</span>`;
+        }
         if(reducVal > 0) {
             let texteReduc = reducType === 'pourcent' ? reducVal + '%' : reducVal + ' DA';
             affichageAchats = `<span style="text-decoration: line-through; color: #94a3b8; font-size: 16px;">${totAchatsBrut} DA</span><br><b>${totAchatsFinal} DA</b> <span style="font-size: 12px; color: var(--warning);">(Rép. -${texteReduc})</span>`;
@@ -614,12 +644,14 @@
         document.getElementById('statPaye').innerText = totPaye + ' DA';
         document.getElementById('statSolde').innerText = solde + ' DA';
 
-        document.getElementById('tableHistAchats').innerHTML = achatsCli.map(a => `<tr><td>${a.date}</td><td>${a.produit}</td><td>${a.qte}</td><td>${a.prix} DA</td><td><b>${a.total} DA</b></td><td class="no-print"><button class="btn-warning" onclick="preparerModifAchat('${a.id}')">Modifier</button><button class="btn-danger" onclick="supprimerAchat('${a.id}')">Supprimer</button></td></tr>`).join('') || '<tr><td colspan="6">Aucun achat enregistré.</td></tr>';
+        document.getElementById('tableHistAchats').innerHTML = achatsCli.map(a => `<tr><td>${a.date}</td><td>${a.produit}</td><td>${a.qte}</td><td>${a.prix} DA</td><td><b>${a.total} DA</b></td><td class="no-print"><button class="btn-warning" onclick="preparerModifAchat('${a.id}')">Modifier</button><button class="btn-danger" onclick="supprimerAchat('${a.id}')">Supprimer</button></td></tr>`).join('') || '<tr><td colspan="6">Aucun achat récent enregistré.</td></tr>';
         
         let qteParProduit = {};
         achatsCli.forEach(a => { qteParProduit[a.produit] = (qteParProduit[a.produit] || 0) + a.qte; });
         let qteArray = Object.keys(qteParProduit).map(prod => ({ produit: prod, qteTotale: qteParProduit[prod] }));
-        document.getElementById('tableTotalProduitsClient').innerHTML = qteArray.map(q => `<tr><td><b>${q.produit}</b></td><td><b>${q.qteTotale}</b></td></tr>`).join('') || '<tr><td colspan="2" style="text-align:center; color:#64748b;">Aucun produit acheté.</td></tr>';
+        document.getElementById('tableTotalProduitsClient').innerHTML = qteArray.map(q => 
+            `<tr><td><b>${q.produit}</b></td><td><b>${q.qteTotale}</b></td></tr>`
+        ).join('') || '<tr><td colspan="2" style="text-align:center; color:#64748b;">Aucun produit acheté.</td></tr>';
 
         document.getElementById('tableHistPaiements').innerHTML = paiementsCli.map(p => `<tr><td>${p.date}</td><td><b>${p.montant} DA</b></td><td>${p.mode}</td><td>${p.numero}</td><td class="no-print"><button class="btn-danger" onclick="supprimerPaiement('${p.id}')">Supprimer</button></td></tr>`).join('') || '<tr><td colspan="5">Aucun paiement enregistré.</td></tr>';
     }
@@ -649,12 +681,18 @@
         let creditsArray = Object.keys(creditsParClient).map(nom => ({ nom, ...creditsParClient[nom] }));
         creditsArray.sort((a, b) => b.reste - a.reste);
 
-        document.getElementById('tableCreditsGlobal').innerHTML = creditsArray.map(c => `<tr><td><b>${c.nom}</b></td><td>${c.achats} DA</td><td>${c.paye} DA</td><td><b style="color: ${c.reste > 0 ? 'var(--danger)' : 'var(--success)'};">${c.reste} DA</b></td></tr>`).join('') || '<tr><td colspan="4" style="text-align:center; color:#64748b;">Aucun client enregistré.</td></tr>';
+        document.getElementById('tableCreditsGlobal').innerHTML = creditsArray.map(c => 
+            `<tr><td><b>${c.nom}</b></td><td>${c.achats} DA</td><td>${c.paye} DA</td><td><b style="color: ${c.reste > 0 ? 'var(--danger)' : 'var(--success)'};">${c.reste} DA</b></td></tr>`
+        ).join('') || '<tr><td colspan="4" style="text-align:center; color:#64748b;">Aucun client enregistré.</td></tr>';
 
         let achatsGlobal = [...appData.achats];
-        if(critereTri === 'date') achatsGlobal.sort((a, b) => new Date(b.date) - new Date(a.date));
-        else if(critereTri === 'nom') achatsGlobal.sort((a, b) => a.client.localeCompare(b.client));
-        else if(critereTri === 'montant') achatsGlobal.sort((a, b) => b.total - a.total);
+        if(critereTri === 'date') {
+            achatsGlobal.sort((a, b) => new Date(b.date) - new Date(a.date));
+        } else if(critereTri === 'nom') {
+            achatsGlobal.sort((a, b) => a.client.localeCompare(b.client));
+        } else if(critereTri === 'montant') {
+            achatsGlobal.sort((a, b) => b.total - a.total);
+        }
 
         document.getElementById('tableGlobalAchats').innerHTML = achatsGlobal.map(a => `<tr><td>${a.date}</td><td><b>${a.client}</b></td><td>${a.produit}</td><td>${a.qte}</td><td>${a.prix} DA</td><td><b>${a.total} DA</b></td></tr>`).join('') || '<tr><td colspan="6" style="text-align:center; color:#64748b;">Aucun achat enregistré.</td></tr>';
     }
