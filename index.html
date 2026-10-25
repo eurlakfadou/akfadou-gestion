@@ -25,7 +25,7 @@
         .btn-danger { background: var(--danger); color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; }
         .btn-warning { background: var(--warning); color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; margin-right: 5px; }
         .btn-success { background: var(--success); color: white; border: none; padding: 10px 18px; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 14px; display: inline-flex; align-items: center; gap: 8px; margin-bottom: 15px;}
-        .cloud-status { background: #dcfce7; color: #166534; padding: 8px 15px; border-radius: 6px; font-size: 13px; font-weight: 600; margin-bottom: 20px; display: inline-flex; align-items: center; gap: 8px; }
+        .cloud-status { background: #dcfce7; color: #166534; padding: 12px 15px; border-radius: 8px; font-size: 13px; font-weight: 600; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; border: 1px solid #bbf7d0; }
         table { width: 100%; border-collapse: collapse; margin-top: 15px; }
         th, td { padding: 12px; text-align: left; border-bottom: 1px solid var(--border); font-size: 14px; }
         th { background: #f1f5f9; font-weight: 600; }
@@ -43,7 +43,7 @@
         }
     </style>
 
-    <!-- Firebase SDK (Compat v9 pour intégration directe et rapide) -->
+    <!-- Firebase SDK -->
     <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
 </head>
@@ -52,7 +52,15 @@
     <h1>Eurl Akfadou - Gestion Clients</h1>
     <p class="subtitle">Application Cloud Synchronisée en direct</p>
     
-    <div class="cloud-status" id="cloudStatus">☁️ Connexion au Cloud en cours...</div>
+    <div class="cloud-status">
+        <span id="cloudStatus">☁️ Connexion au Cloud en cours...</span>
+        <div style="display: flex; gap: 10px;">
+            <button class="action-btn" style="background: #16a34a; padding: 7px 14px; font-size: 13px;" onclick="sauvegarderJSON()">💾 1. Sauvegarder</button>
+            
+            <input type="file" id="importFile" accept=".json" style="display:none" onchange="importerFichierJSON(event)">
+            <button class="action-btn" style="background: #0284c7; padding: 7px 14px; font-size: 13px;" onclick="document.getElementById('importFile').click()">📂 2. Importer</button>
+        </div>
+    </div>
 
     <div class="tabs">
         <button class="tab-btn active" onclick="switchTab('recherche', event)">Recherche & Historique</button>
@@ -82,7 +90,7 @@
                 <div class="stat-card"><h3>Reste à Payer (Solde)</h3><p id="statSolde" style="color: var(--danger);">0 DA</p></div>
             </div>
 
-            <!-- BLOC RÉDUCTION GLOBALE SUR LA FICHE CLIENT -->
+            <!-- BLOC RÉDUCTION GLOBALE -->
             <div class="reduc-box no-print">
                 <div style="flex: 1;">
                     <label>Type de réduction globale</label>
@@ -208,7 +216,6 @@
 </div>
 
 <script>
-    // Configuration Firebase
     const firebaseConfig = {
       apiKey: "AIzaSyCmncF76KRvWQvN-k63HZx-IVLEuCoynXI",
       authDomain: "akfadou-e7317.firebaseapp.com",
@@ -225,7 +232,6 @@
     let appData = { clients: [], produits: [], achats: [], paiements: [] };
     let critereTri = 'date';
 
-    // Synchronisation en direct avec Firestore (Cloud)
     function demarrerSyncCloud() {
         db.collection("clients").onSnapshot(snapshot => {
             appData.clients = [];
@@ -256,6 +262,49 @@
         });
     }
 
+    // 1. FONCTION DE SAUVEGARDE (EXPORT JSON)
+    function sauvegarderJSON() {
+        let dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(appData, null, 2));
+        let downloadAnchor = document.createElement('a');
+        downloadAnchor.setAttribute("href", dataStr);
+        downloadAnchor.setAttribute("download", "sauvegarde_akfadou_" + new Date().toISOString().split('T')[0] + ".json");
+        document.body.appendChild(downloadAnchor);
+        downloadAnchor.click();
+        downloadAnchor.remove();
+    }
+
+    // 2. FONCTION D'IMPORTATION (IMPORT JSON)
+    async function importerFichierJSON(event) {
+        let file = event.target.files[0];
+        if (!file) return;
+
+        let reader = new FileReader();
+        reader.onload = async function(e) {
+            try {
+                let data = JSON.parse(e.target.result);
+                if (!confirm("Voulez-vous importer ces données dans le Cloud ?")) return;
+
+                if (data.clients && Array.isArray(data.clients)) {
+                    for (let c of data.clients) { delete c.id; await db.collection("clients").add(c); }
+                }
+                if (data.produits && Array.isArray(data.produits)) {
+                    for (let p of data.produits) { delete p.id; await db.collection("produits").add(p); }
+                }
+                if (data.achats && Array.isArray(data.achats)) {
+                    for (let a of data.achats) { delete a.id; await db.collection("achats").add(a); }
+                }
+                if (data.paiements && Array.isArray(data.paiements)) {
+                    for (let pay of data.paiements) { delete pay.id; await db.collection("paiements").add(pay); }
+                }
+
+                alert("Importation réussie ! Vos données sont maintenant dans le Cloud.");
+            } catch (err) {
+                alert("Erreur lors de la lecture du fichier JSON : " + err.message);
+            }
+        };
+        reader.readAsText(file);
+    }
+
     function majInterface() {
         rempliListesSelects();
         let activeTab = document.querySelector('.panel.active').id;
@@ -272,14 +321,12 @@
         if(tabId === 'global') afficherHistoriqueGlobal();
     }
 
-    // CLIENTS
     async function enregistrerClient() {
         let nom = document.getElementById('cliNom').value.trim();
         let tel = document.getElementById('cliTel').value;
         let adresse = document.getElementById('cliAdresse').value;
         let ancienCredit = parseFloat(document.getElementById('cliAncienCredit').value) || 0;
         let docId = document.getElementById('editClientDocId').value;
-
         if(!nom) return alert('Veuillez entrer un nom.');
 
         try {
@@ -291,13 +338,8 @@
                 alert('Client mis à jour !');
                 annulerEditClient();
             }
-            document.getElementById('cliNom').value = '';
-            document.getElementById('cliTel').value = '';
-            document.getElementById('cliAdresse').value = '';
-            document.getElementById('cliAncienCredit').value = '0';
-        } catch(e) {
-            alert("Erreur: " + e.message);
-        }
+            document.getElementById('cliNom').value = ''; document.getElementById('cliTel').value = ''; document.getElementById('cliAdresse').value = ''; document.getElementById('cliAncienCredit').value = '0';
+        } catch(e) { alert("Erreur: " + e.message); }
     }
 
     function preparerModifClient(id) {
@@ -315,20 +357,16 @@
 
     function annulerEditClient() {
         document.getElementById('cliNom').value = ''; document.getElementById('cliTel').value = ''; document.getElementById('cliAdresse').value = '';
-        document.getElementById('cliAncienCredit').value = '0';
-        document.getElementById('editClientDocId').value = "";
+        document.getElementById('cliAncienCredit').value = '0'; document.getElementById('editClientDocId').value = "";
         document.getElementById('titreClientForm').innerText = "Gestion des Clients (Ajout)";
         document.getElementById('btnValiderClient').innerText = "Enregistrer le client";
         document.getElementById('btnAnnulerClient').style.display = "none";
     }
 
     async function supprimerClient(id) {
-        if(confirm("Supprimer ce client du Cloud ?")) {
-            await db.collection("clients").doc(id).delete();
-        }
+        if(confirm("Supprimer ce client du Cloud ?")) { await db.collection("clients").doc(id).delete(); }
     }
 
-    // PRODUITS
     async function enregistrerProduit() {
         let nom = document.getElementById('prodNom').value.trim();
         let prix = parseFloat(document.getElementById('prodPrix').value);
@@ -344,11 +382,8 @@
                 alert('Produit mis à jour !');
                 annulerEditProduit();
             }
-            document.getElementById('prodNom').value = '';
-            document.getElementById('prodPrix').value = '';
-        } catch(e) {
-            alert("Erreur: " + e.message);
-        }
+            document.getElementById('prodNom').value = ''; document.getElementById('prodPrix').value = '';
+        } catch(e) { alert("Erreur: " + e.message); }
     }
 
     function preparerModifProduit(id) {
@@ -371,12 +406,9 @@
     }
 
     async function supprimerProduit(id) {
-        if(confirm("Supprimer ce produit ?")) {
-            await db.collection("produits").doc(id).delete();
-        }
+        if(confirm("Supprimer ce produit ?")) { await db.collection("produits").doc(id).delete(); }
     }
 
-    // ACHATS
     async function ajouterAchat() {
         let client = document.getElementById('achatClient').value;
         let produit = document.getElementById('achatProduit').value;
@@ -384,7 +416,6 @@
         let prix = parseFloat(document.getElementById('achatPrix').value) || 0;
         let date = document.getElementById('achatDate').value || new Date().toISOString().split('T')[0];
         let docId = document.getElementById('editAchatDocId').value;
-
         if(!client || !produit) return alert('Sélectionnez un client et un produit.');
 
         let total = qte * prix;
@@ -400,9 +431,7 @@
                 annulerEditAchat();
             }
             viderFormulaireAchat();
-        } catch(e) {
-            alert("Erreur: " + e.message);
-        }
+        } catch(e) { alert("Erreur: " + e.message); }
     }
 
     function preparerModifAchat(id) {
@@ -414,7 +443,6 @@
         document.getElementById('achatPrix').value = a.prix;
         document.getElementById('achatDate').value = a.date;
         document.getElementById('editAchatDocId').value = id;
-        
         document.getElementById('titreAchatForm').innerText = "Modifier l'achat";
         document.getElementById('btnValiderAchat').innerText = "Mettre à jour l'achat";
         document.getElementById('btnAnnulerAchat').style.display = "inline-block";
@@ -434,20 +462,14 @@
     }
 
     function viderFormulaireAchat() {
-        document.getElementById('achatClient').value = "";
-        document.getElementById('achatProduit').value = "";
-        document.getElementById('achatQte').value = "1";
-        document.getElementById('achatPrix').value = "";
-        document.getElementById('achatDate').value = "";
+        document.getElementById('achatClient').value = ""; document.getElementById('achatProduit').value = "";
+        document.getElementById('achatQte').value = "1"; document.getElementById('achatPrix').value = ""; document.getElementById('achatDate').value = "";
     }
 
     async function supprimerAchat(id) {
-        if(confirm("Supprimer cet achat ?")) {
-            await db.collection("achats").doc(id).delete();
-        }
+        if(confirm("Supprimer cet achat ?")) { await db.collection("achats").doc(id).delete(); }
     }
 
-    // PAIEMENTS
     function gererChampNumero() {
         let mode = document.getElementById('paiementMode').value;
         let groupe = document.getElementById('groupeNumero');
@@ -471,27 +493,19 @@
             await db.collection("paiements").add({ client, montant, mode, numero: (mode !== 'Espèces' ? numero : '-'), date });
             alert('Paiement enregistré dans le Cloud !');
             viderFormulairePaiement();
-        } catch(e) {
-            alert("Erreur: " + e.message);
-        }
+        } catch(e) { alert("Erreur: " + e.message); }
     }
 
     function viderFormulairePaiement() {
-        document.getElementById('paiementClient').value = "";
-        document.getElementById('paiementMontant').value = "";
-        document.getElementById('paiementMode').value = "Espèces";
-        document.getElementById('paiementNumero').value = "";
-        document.getElementById('groupeNumero').style.display = "none";
-        document.getElementById('paiementDate').value = "";
+        document.getElementById('paiementClient').value = ""; document.getElementById('paiementMontant').value = "";
+        document.getElementById('paiementMode').value = "Espèces"; document.getElementById('paiementNumero').value = "";
+        document.getElementById('groupeNumero').style.display = "none"; document.getElementById('paiementDate').value = "";
     }
 
     async function supprimerPaiement(id) {
-        if(confirm("Supprimer ce paiement ?")) {
-            await db.collection("paiements").doc(id).delete();
-        }
+        if(confirm("Supprimer ce paiement ?")) { await db.collection("paiements").doc(id).delete(); }
     }
 
-    // AFFICHAGE & LISTES
     function rempliListesSelects() {
         let clientsTries = [...appData.clients].sort((a, b) => a.nom.localeCompare(b.nom));
         let produitsTries = [...appData.produits].sort((a, b) => a.nom.localeCompare(b.nom));
@@ -542,7 +556,6 @@
         let clientNom = document.getElementById('selectClientRecherche').value;
         let container = document.getElementById('detailsClientContent');
         if(!clientNom) { container.style.display = 'none'; return; }
-        
         let clientObj = appData.clients.find(c => c.nom === clientNom);
         if(clientObj) {
             document.getElementById('typeReducClient').value = clientObj.reducType || 'montant';
@@ -554,10 +567,8 @@
     async function appliquerReductionClient() {
         let clientNom = document.getElementById('selectClientRecherche').value;
         if(!clientNom) return alert('Sélectionnez d\'abord un client.');
-
         let typeReduc = document.getElementById('typeReducClient').value;
         let valeurReduc = parseFloat(document.getElementById('valeurReducClient').value) || 0;
-
         let clientObj = appData.clients.find(c => c.nom === clientNom);
         if(clientObj) {
             await db.collection("clients").doc(clientObj.id).update({ reducType: typeReduc, reducVal: valeurReduc });
@@ -572,7 +583,6 @@
         container.style.display = 'block';
 
         document.getElementById('titreClientFiche').innerText = "Fiche Client : " + clientNom;
-
         let achatsCli = appData.achats.filter(a => a.client === clientNom);
         let paiementsCli = appData.paiements.filter(p => p.client === clientNom);
 
@@ -585,11 +595,8 @@
 
         let totAchatsFinal = totAchatsBrut;
         if(reducVal > 0) {
-            if(reducType === 'montant') {
-                totAchatsFinal = totAchatsBrut - reducVal;
-            } else {
-                totAchatsFinal = totAchatsBrut - (totAchatsBrut * (reducVal / 100));
-            }
+            if(reducType === 'montant') totAchatsFinal = totAchatsBrut - reducVal;
+            else totAchatsFinal = totAchatsBrut - (totAchatsBrut * (reducVal / 100));
             if(totAchatsFinal < 0) totAchatsFinal = 0;
         }
 
@@ -597,9 +604,7 @@
         let solde = totAchatsFinal - totPaye;
 
         let affichageAchats = totAchatsBrut + ' DA';
-        if(ancienCredit > 0) {
-            affichageAchats += ` <span style="font-size: 12px; color: var(--warning);">(Inclus ancien crédit : ${ancienCredit} DA)</span>`;
-        }
+        if(ancienCredit > 0) affichageAchats += ` <span style="font-size: 12px; color: var(--warning);">(Inclus ancien crédit : ${ancienCredit} DA)</span>`;
         if(reducVal > 0) {
             let texteReduc = reducType === 'pourcent' ? reducVal + '%' : reducVal + ' DA';
             affichageAchats = `<span style="text-decoration: line-through; color: #94a3b8; font-size: 16px;">${totAchatsBrut} DA</span><br><b>${totAchatsFinal} DA</b> <span style="font-size: 12px; color: var(--warning);">(Rép. -${texteReduc})</span>`;
@@ -614,9 +619,7 @@
         let qteParProduit = {};
         achatsCli.forEach(a => { qteParProduit[a.produit] = (qteParProduit[a.produit] || 0) + a.qte; });
         let qteArray = Object.keys(qteParProduit).map(prod => ({ produit: prod, qteTotale: qteParProduit[prod] }));
-        document.getElementById('tableTotalProduitsClient').innerHTML = qteArray.map(q => 
-            `<tr><td><b>${q.produit}</b></td><td><b>${q.qteTotale}</b></td></tr>`
-        ).join('') || '<tr><td colspan="2" style="text-align:center; color:#64748b;">Aucun produit acheté.</td></tr>';
+        document.getElementById('tableTotalProduitsClient').innerHTML = qteArray.map(q => `<tr><td><b>${q.produit}</b></td><td><b>${q.qteTotale}</b></td></tr>`).join('') || '<tr><td colspan="2" style="text-align:center; color:#64748b;">Aucun produit acheté.</td></tr>';
 
         document.getElementById('tableHistPaiements').innerHTML = paiementsCli.map(p => `<tr><td>${p.date}</td><td><b>${p.montant} DA</b></td><td>${p.mode}</td><td>${p.numero}</td><td class="no-print"><button class="btn-danger" onclick="supprimerPaiement('${p.id}')">Supprimer</button></td></tr>`).join('') || '<tr><td colspan="5">Aucun paiement enregistré.</td></tr>';
     }
@@ -646,23 +649,16 @@
         let creditsArray = Object.keys(creditsParClient).map(nom => ({ nom, ...creditsParClient[nom] }));
         creditsArray.sort((a, b) => b.reste - a.reste);
 
-        document.getElementById('tableCreditsGlobal').innerHTML = creditsArray.map(c => 
-            `<tr><td><b>${c.nom}</b></td><td>${c.achats} DA</td><td>${c.paye} DA</td><td><b style="color: ${c.reste > 0 ? 'var(--danger)' : 'var(--success)'};">${c.reste} DA</b></td></tr>`
-        ).join('') || '<tr><td colspan="4" style="text-align:center; color:#64748b;">Aucun client enregistré.</td></tr>';
+        document.getElementById('tableCreditsGlobal').innerHTML = creditsArray.map(c => `<tr><td><b>${c.nom}</b></td><td>${c.achats} DA</td><td>${c.paye} DA</td><td><b style="color: ${c.reste > 0 ? 'var(--danger)' : 'var(--success)'};">${c.reste} DA</b></td></tr>`).join('') || '<tr><td colspan="4" style="text-align:center; color:#64748b;">Aucun client enregistré.</td></tr>';
 
         let achatsGlobal = [...appData.achats];
-        if(critereTri === 'date') {
-            achatsGlobal.sort((a, b) => new Date(b.date) - new Date(a.date));
-        } else if(critereTri === 'nom') {
-            achatsGlobal.sort((a, b) => a.client.localeCompare(b.client));
-        } else if(critereTri === 'montant') {
-            achatsGlobal.sort((a, b) => b.total - a.total);
-        }
+        if(critereTri === 'date') achatsGlobal.sort((a, b) => new Date(b.date) - new Date(a.date));
+        else if(critereTri === 'nom') achatsGlobal.sort((a, b) => a.client.localeCompare(b.client));
+        else if(critereTri === 'montant') achatsGlobal.sort((a, b) => b.total - a.total);
 
         document.getElementById('tableGlobalAchats').innerHTML = achatsGlobal.map(a => `<tr><td>${a.date}</td><td><b>${a.client}</b></td><td>${a.produit}</td><td>${a.qte}</td><td>${a.prix} DA</td><td><b>${a.total} DA</b></td></tr>`).join('') || '<tr><td colspan="6" style="text-align:center; color:#64748b;">Aucun achat enregistré.</td></tr>';
     }
 
-    // Lancement de la synchronisation au démarrage
     window.onload = demarrerSyncCloud;
 </script>
 </body>
