@@ -25,8 +25,7 @@
         .btn-danger { background: var(--danger); color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; }
         .btn-warning { background: var(--warning); color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; margin-right: 5px; }
         .btn-success { background: var(--success); color: white; border: none; padding: 10px 18px; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 14px; display: inline-flex; align-items: center; gap: 8px; margin-bottom: 15px;}
-        .btn-export-json { background: #7c3aed; color: white; border: none; padding: 10px 16px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px; display: inline-flex; align-items: center; gap: 8px; }
-        .btn-import-json { background: #0d9488; color: white; border: none; padding: 10px 16px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px; display: inline-flex; align-items: center; gap: 8px; }
+        .cloud-status { background: #dcfce7; color: #166534; padding: 8px 15px; border-radius: 6px; font-size: 13px; font-weight: 600; margin-bottom: 20px; display: inline-flex; align-items: center; gap: 8px; }
         table { width: 100%; border-collapse: collapse; margin-top: 15px; }
         th, td { padding: 12px; text-align: left; border-bottom: 1px solid var(--border); font-size: 14px; }
         th { background: #f1f5f9; font-weight: 600; }
@@ -43,11 +42,17 @@
             .no-print, button { display: none !important; }
         }
     </style>
+
+    <!-- Firebase SDK (Compat v9 pour intégration directe et rapide) -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
 </head>
 <body>
 <div class="container">
     <h1>Eurl Akfadou - Gestion Clients</h1>
-    <p class="subtitle">Application de gestion intégrée</p>
+    <p class="subtitle">Application Cloud Synchronisée en direct</p>
+    
+    <div class="cloud-status" id="cloudStatus">☁️ Connexion au Cloud en cours...</div>
 
     <div class="tabs">
         <button class="tab-btn active" onclick="switchTab('recherche', event)">Recherche & Historique</button>
@@ -60,13 +65,6 @@
 
     <!-- RECHERCHE CLIENT & HISTORIQUE -->
     <div id="recherche" class="panel active">
-        <!-- BARRE D'EXPORTATION & IMPORTATION RAPIDE -->
-        <div class="no-print" style="display: flex; gap: 10px; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid var(--border); flex-wrap: wrap;">
-            <button class="btn-export-json" onclick="exporterEnJSON()">📥 Sauvegarde (JSON)</button>
-            <button class="btn-import-json" onclick="document.getElementById('inputImportFichier').click()">📂 Importer des données (JSON)</button>
-            <input type="file" id="inputImportFichier" style="display: none;" accept=".json" onchange="importerDonnees(event)">
-        </div>
-
         <h2>Recherche Client & Historique Direct</h2>
         <div class="form-group">
             <label>Sélectionner ou chercher un client (trié de A à Z) :</label>
@@ -147,7 +145,7 @@
     <!-- CLIENTS -->
     <div id="clients" class="panel">
         <h2 id="titreClientForm">Gestion des Clients (Ajout)</h2>
-        <input type="hidden" id="editClientIndex" value="">
+        <input type="hidden" id="editClientDocId" value="">
         <div class="form-group"><label>Nom / Raison Sociale</label><input type="text" id="cliNom"></div>
         <div class="form-group"><label>Téléphone</label><input type="text" id="cliTel"></div>
         <div class="form-group"><label>Adresse</label><input type="text" id="cliAdresse"></div>
@@ -162,7 +160,7 @@
     <!-- PRODUITS -->
     <div id="produits" class="panel">
         <h2 id="titreProduitForm">Catalogue des Produits (Ajout)</h2>
-        <input type="hidden" id="editProduitIndex" value="">
+        <input type="hidden" id="editProduitDocId" value="">
         <div class="form-group"><label>Nom du Produit</label><input type="text" id="prodNom"></div>
         <div class="form-group"><label>Prix Unitaire (DA)</label><input type="number" id="prodPrix"></div>
         <button class="action-btn" id="btnValiderProduit" onclick="enregistrerProduit()">Ajouter au catalogue</button>
@@ -175,7 +173,7 @@
     <!-- ACHATS -->
     <div id="achats" class="panel">
         <h2 id="titreAchatForm">Saisir un Achat / Vente</h2>
-        <input type="hidden" id="editAchatIndex" value="">
+        <input type="hidden" id="editAchatDocId" value="">
         <div class="form-group"><label>Client</label><select id="achatClient"></select></div>
         <div class="form-group"><label>Produit</label><select id="achatProduit" onchange="remplirPrix()"></select></div>
         <div class="form-group"><label>Quantité</label><input type="number" id="achatQte" value="1"></div>
@@ -210,10 +208,60 @@
 </div>
 
 <script>
-    let db = JSON.parse(localStorage.getItem('akfadou_db')) || { clients: [], produits: [], achats: [], paiements: [] };
+    // Configuration Firebase
+    const firebaseConfig = {
+      apiKey: "AIzaSyCmncF76KRvWQvN-k63HZx-IVLEuCoynXI",
+      authDomain: "akfadou-e7317.firebaseapp.com",
+      projectId: "akfadou-e7317",
+      storageBucket: "akfadou-e7317.firebasestorage.app",
+      messagingSenderId: "541075485490",
+      appId: "1:541075485490:web:0154f3b77931680387dd2b",
+      measurementId: "G-2WXB9BTEF1"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
+    let appData = { clients: [], produits: [], achats: [], paiements: [] };
     let critereTri = 'date';
 
-    function saveData() { localStorage.setItem('akfadou_db', JSON.stringify(db)); remplirListes(); }
+    // Synchronisation en direct avec Firestore (Cloud)
+    function demarrerSyncCloud() {
+        db.collection("clients").onSnapshot(snapshot => {
+            appData.clients = [];
+            snapshot.forEach(doc => appData.clients.push({ id: doc.id, ...doc.data() }));
+            majInterface();
+            document.getElementById('cloudStatus').innerText = "☁️ Connecté en direct au Cloud Akfadou";
+        }, err => {
+            document.getElementById('cloudStatus').innerText = "⚠️ Erreur de connexion Cloud";
+            console.error(err);
+        });
+
+        db.collection("produits").onSnapshot(snapshot => {
+            appData.produits = [];
+            snapshot.forEach(doc => appData.produits.push({ id: doc.id, ...doc.data() }));
+            majInterface();
+        });
+
+        db.collection("achats").onSnapshot(snapshot => {
+            appData.achats = [];
+            snapshot.forEach(doc => appData.achats.push({ id: doc.id, ...doc.data() }));
+            majInterface();
+        });
+
+        db.collection("paiements").onSnapshot(snapshot => {
+            appData.paiements = [];
+            snapshot.forEach(doc => appData.paiements.push({ id: doc.id, ...doc.data() }));
+            majInterface();
+        });
+    }
+
+    function majInterface() {
+        rempliListesSelects();
+        let activeTab = document.querySelector('.panel.active').id;
+        if(activeTab === 'recherche') afficherHistoriqueClient();
+        if(activeTab === 'global') afficherHistoriqueGlobal();
+    }
 
     function switchTab(tabId, evt) {
         document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
@@ -224,71 +272,42 @@
         if(tabId === 'global') afficherHistoriqueGlobal();
     }
 
-    function exporterEnJSON() {
-        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(db, null, 2));
-        const downloadAnchor = document.createElement('a');
-        downloadAnchor.setAttribute("href", dataStr);
-        downloadAnchor.setAttribute("download", "sauvegarde_akfadou_" + new Date().toISOString().split('T')[0] + ".json");
-        document.body.appendChild(downloadAnchor);
-        downloadAnchor.click();
-        downloadAnchor.remove();
-    }
-
-    function importerDonnees(event) {
-        const file = event.target.files[0];
-        if(!file) return;
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            try {
-                let parsed = JSON.parse(e.target.result);
-                if(parsed && parsed.clients && parsed.produits && parsed.achats && parsed.paiements) {
-                    db = parsed;
-                    saveData();
-                    alert('Données importées avec succès !');
-                    location.reload();
-                } else {
-                    alert('Format de fichier de sauvegarde invalide.');
-                }
-            } catch(err) {
-                alert('Erreur lors de la lecture du fichier JSON.');
-            }
-        };
-        reader.readAsText(file);
-    }
-
-    function enregistrerClient() {
+    // CLIENTS
+    async function enregistrerClient() {
         let nom = document.getElementById('cliNom').value.trim();
         let tel = document.getElementById('cliTel').value;
         let adresse = document.getElementById('cliAdresse').value;
         let ancienCredit = parseFloat(document.getElementById('cliAncienCredit').value) || 0;
-        let index = document.getElementById('editClientIndex').value;
+        let docId = document.getElementById('editClientDocId').value;
 
         if(!nom) return alert('Veuillez entrer un nom.');
 
-        if(index === "") {
-            db.clients.push({ nom, tel, adresse, ancienCredit, reducType: 'montant', reducVal: 0 });
-            alert('Client enregistré !');
-        } else {
-            let ancienNom = db.clients[index].nom;
-            db.achats.forEach(a => { if(a.client === ancienNom) a.client = nom; });
-            db.paiements.forEach(p => { if(p.client === ancienNom) p.client = nom; });
-            db.clients[index].nom = nom;
-            db.clients[index].tel = tel;
-            db.clients[index].adresse = adresse;
-            db.clients[index].ancienCredit = ancienCredit;
-            alert('Client modifié avec succès !');
-            annulerEditClient();
+        try {
+            if(docId === "") {
+                await db.collection("clients").add({ nom, tel, adresse, ancienCredit, reducType: 'montant', reducVal: 0 });
+                alert('Client enregistré dans le Cloud !');
+            } else {
+                await db.collection("clients").doc(docId).update({ nom, tel, adresse, ancienCredit });
+                alert('Client mis à jour !');
+                annulerEditClient();
+            }
+            document.getElementById('cliNom').value = '';
+            document.getElementById('cliTel').value = '';
+            document.getElementById('cliAdresse').value = '';
+            document.getElementById('cliAncienCredit').value = '0';
+        } catch(e) {
+            alert("Erreur: " + e.message);
         }
-        saveData();
     }
 
-    function preparerModifClient(index) {
-        let c = db.clients[index];
+    function preparerModifClient(id) {
+        let c = appData.clients.find(x => x.id === id);
+        if(!c) return;
         document.getElementById('cliNom').value = c.nom;
         document.getElementById('cliTel').value = c.tel;
         document.getElementById('cliAdresse').value = c.adresse;
         document.getElementById('cliAncienCredit').value = c.ancienCredit || 0;
-        document.getElementById('editClientIndex').value = index;
+        document.getElementById('editClientDocId').value = id;
         document.getElementById('titreClientForm').innerText = "Modifier le client";
         document.getElementById('btnValiderClient').innerText = "Mettre à jour";
         document.getElementById('btnAnnulerClient').style.display = "inline-block";
@@ -297,45 +316,47 @@
     function annulerEditClient() {
         document.getElementById('cliNom').value = ''; document.getElementById('cliTel').value = ''; document.getElementById('cliAdresse').value = '';
         document.getElementById('cliAncienCredit').value = '0';
-        document.getElementById('editClientIndex').value = "";
+        document.getElementById('editClientDocId').value = "";
         document.getElementById('titreClientForm').innerText = "Gestion des Clients (Ajout)";
         document.getElementById('btnValiderClient').innerText = "Enregistrer le client";
         document.getElementById('btnAnnulerClient').style.display = "none";
     }
 
-    function supprimerClient(index) {
-        if(confirm("Voulez-vous vraiment supprimer ce client ?")) {
-            let nom = db.clients[index].nom;
-            db.clients.splice(index, 1);
-            saveData();
-            if(document.getElementById('selectClientRecherche').value === nom) {
-                document.getElementById('selectClientRecherche').value = "";
-                afficherHistoriqueClient();
-            }
+    async function supprimerClient(id) {
+        if(confirm("Supprimer ce client du Cloud ?")) {
+            await db.collection("clients").doc(id).delete();
         }
     }
 
-    function enregistrerProduit() {
+    // PRODUITS
+    async function enregistrerProduit() {
         let nom = document.getElementById('prodNom').value.trim();
-        let prix = document.getElementById('prodPrix').value;
-        let index = document.getElementById('editProduitIndex').value;
-        if(!nom || !prix) return alert('Remplissez tous les champs.');
-        if(index === "") {
-            db.produits.push({ nom, prix: parseFloat(prix) });
-            alert('Produit ajouté !');
-        } else {
-            db.produits[index] = { nom, prix: parseFloat(prix) };
-            alert('Produit modifié !');
-            annulerEditProduit();
+        let prix = parseFloat(document.getElementById('prodPrix').value);
+        let docId = document.getElementById('editProduitDocId').value;
+        if(!nom || isNaN(prix)) return alert('Remplissez tous les champs.');
+
+        try {
+            if(docId === "") {
+                await db.collection("produits").add({ nom, prix });
+                alert('Produit ajouté au catalogue Cloud !');
+            } else {
+                await db.collection("produits").doc(docId).update({ nom, prix });
+                alert('Produit mis à jour !');
+                annulerEditProduit();
+            }
+            document.getElementById('prodNom').value = '';
+            document.getElementById('prodPrix').value = '';
+        } catch(e) {
+            alert("Erreur: " + e.message);
         }
-        saveData();
     }
 
-    function preparerModifProduit(index) {
-        let p = db.produits[index];
+    function preparerModifProduit(id) {
+        let p = appData.produits.find(x => x.id === id);
+        if(!p) return;
         document.getElementById('prodNom').value = p.nom;
         document.getElementById('prodPrix').value = p.prix;
-        document.getElementById('editProduitIndex').value = index;
+        document.getElementById('editProduitDocId').value = id;
         document.getElementById('titreProduitForm').innerText = "Modifier le produit";
         document.getElementById('btnValiderProduit').innerText = "Mettre à jour";
         document.getElementById('btnAnnulerProduit').style.display = "inline-block";
@@ -343,52 +364,56 @@
 
     function annulerEditProduit() {
         document.getElementById('prodNom').value = ''; document.getElementById('prodPrix').value = '';
-        document.getElementById('editProduitIndex').value = "";
+        document.getElementById('editProduitDocId').value = "";
         document.getElementById('titreProduitForm').innerText = "Catalogue des Produits (Ajout)";
         document.getElementById('btnValiderProduit').innerText = "Ajouter au catalogue";
         document.getElementById('btnAnnulerProduit').style.display = "none";
     }
 
-    function supprimerProduit(index) {
-        if(confirm("Voulez-vous supprimer ce produit du catalogue ?")) {
-            db.produits.splice(index, 1);
-            saveData();
+    async function supprimerProduit(id) {
+        if(confirm("Supprimer ce produit ?")) {
+            await db.collection("produits").doc(id).delete();
         }
     }
 
-    function ajouterAchat() {
+    // ACHATS
+    async function ajouterAchat() {
         let client = document.getElementById('achatClient').value;
         let produit = document.getElementById('achatProduit').value;
         let qte = parseFloat(document.getElementById('achatQte').value) || 1;
         let prix = parseFloat(document.getElementById('achatPrix').value) || 0;
         let date = document.getElementById('achatDate').value || new Date().toISOString().split('T')[0];
-        let index = document.getElementById('editAchatIndex').value;
+        let docId = document.getElementById('editAchatDocId').value;
 
         if(!client || !produit) return alert('Sélectionnez un client et un produit.');
 
         let total = qte * prix;
-        let achatObj = { client, produit, qte, prix, total, date };
+        let obj = { client, produit, qte, prix, total, date };
 
-        if(index === "") {
-            db.achats.push(achatObj);
-            alert('Achat enregistré avec succès !');
-        } else {
-            db.achats[index] = achatObj;
-            alert('Achat mis à jour avec succès !');
-            annulerEditAchat();
+        try {
+            if(docId === "") {
+                await db.collection("achats").add(obj);
+                alert('Achat enregistré en direct !');
+            } else {
+                await db.collection("achats").doc(docId).update(obj);
+                alert('Achat mis à jour !');
+                annulerEditAchat();
+            }
+            viderFormulaireAchat();
+        } catch(e) {
+            alert("Erreur: " + e.message);
         }
-        saveData();
-        afficherHistoriqueClient();
     }
 
-    function preparerModifAchat(indexGlobal) {
-        let a = db.achats[indexGlobal];
+    function preparerModifAchat(id) {
+        let a = appData.achats.find(x => x.id === id);
+        if(!a) return;
         document.getElementById('achatClient').value = a.client;
         document.getElementById('achatProduit').value = a.produit;
         document.getElementById('achatQte').value = a.qte;
         document.getElementById('achatPrix').value = a.prix;
         document.getElementById('achatDate').value = a.date;
-        document.getElementById('editAchatIndex').value = indexGlobal;
+        document.getElementById('editAchatDocId').value = id;
         
         document.getElementById('titreAchatForm').innerText = "Modifier l'achat";
         document.getElementById('btnValiderAchat').innerText = "Mettre à jour l'achat";
@@ -402,7 +427,7 @@
 
     function annulerEditAchat() {
         viderFormulaireAchat();
-        document.getElementById('editAchatIndex').value = "";
+        document.getElementById('editAchatDocId').value = "";
         document.getElementById('titreAchatForm').innerText = "Saisir un Achat / Vente";
         document.getElementById('btnValiderAchat').innerText = "Valider l'achat";
         document.getElementById('btnAnnulerAchat').style.display = "none";
@@ -416,15 +441,13 @@
         document.getElementById('achatDate').value = "";
     }
 
-    function supprimerAchat(indexGlobal) {
-        if(confirm("Voulez-vous supprimer cette ligne d'achat ?")) {
-            db.achats.splice(indexGlobal, 1);
-            saveData();
-            afficherHistoriqueClient();
-            afficherHistoriqueGlobal();
+    async function supprimerAchat(id) {
+        if(confirm("Supprimer cet achat ?")) {
+            await db.collection("achats").doc(id).delete();
         }
     }
 
+    // PAIEMENTS
     function gererChampNumero() {
         let mode = document.getElementById('paiementMode').value;
         let groupe = document.getElementById('groupeNumero');
@@ -434,18 +457,23 @@
         else { groupe.style.display = 'none'; document.getElementById('paiementNumero').value = ''; }
     }
 
-    function ajouterPaiement() {
+    async function ajouterPaiement() {
         let client = document.getElementById('paiementClient').value;
         let montant = parseFloat(document.getElementById('paiementMontant').value);
         let mode = document.getElementById('paiementMode').value;
         let numero = document.getElementById('paiementNumero').value;
         let date = document.getElementById('paiementDate').value || new Date().toISOString().split('T')[0];
+
         if(!client || !montant) return alert('Remplissez les champs obligatoires.');
         if((mode === 'Chèque' || mode === 'Virement') && !numero) return alert('Veuillez entrer le numéro.');
-        db.paiements.push({ client, montant, mode, numero: (mode !== 'Espèces' ? numero : '-'), date });
-        saveData();
-        alert('Paiement enregistré !');
-        afficherHistoriqueClient();
+
+        try {
+            await db.collection("paiements").add({ client, montant, mode, numero: (mode !== 'Espèces' ? numero : '-'), date });
+            alert('Paiement enregistré dans le Cloud !');
+            viderFormulairePaiement();
+        } catch(e) {
+            alert("Erreur: " + e.message);
+        }
     }
 
     function viderFormulairePaiement() {
@@ -457,17 +485,16 @@
         document.getElementById('paiementDate').value = "";
     }
 
-    function supprimerPaiement(indexGlobal) {
-        if(confirm("Voulez-vous supprimer ce versement ?")) {
-            db.paiements.splice(indexGlobal, 1);
-            saveData();
-            afficherHistoriqueClient();
+    async function supprimerPaiement(id) {
+        if(confirm("Supprimer ce paiement ?")) {
+            await db.collection("paiements").doc(id).delete();
         }
     }
 
-    function remplirListes() {
-        let clientsTries = [...db.clients].sort((a, b) => a.nom.localeCompare(b.nom));
-        let produitsTries = [...db.produits].sort((a, b) => a.nom.localeCompare(b.nom));
+    // AFFICHAGE & LISTES
+    function rempliListesSelects() {
+        let clientsTries = [...appData.clients].sort((a, b) => a.nom.localeCompare(b.nom));
+        let produitsTries = [...appData.produits].sort((a, b) => a.nom.localeCompare(b.nom));
 
         let cSelects = [document.getElementById('achatClient'), document.getElementById('paiementClient'), document.getElementById('selectClientRecherche')];
         cSelects.forEach(s => { 
@@ -488,13 +515,11 @@
         }
 
         document.getElementById('tableClients').innerHTML = clientsTries.map((c) => {
-            let realIndex = db.clients.findIndex(orig => orig.nom === c.nom);
-            return `<tr><td>${c.nom}</td><td>${c.tel || '-'}</td><td>${c.adresse || '-'}</td><td><b>${c.ancienCredit || 0} DA</b></td><td><button class="btn-warning" onclick="preparerModifClient(${realIndex})">Modifier</button><button class="btn-danger" onclick="supprimerClient(${realIndex})">Supprimer</button></td></tr>`;
+            return `<tr><td>${c.nom}</td><td>${c.tel || '-'}</td><td>${c.adresse || '-'}</td><td><b>${c.ancienCredit || 0} DA</b></td><td><button class="btn-warning" onclick="preparerModifClient('${c.id}')">Modifier</button><button class="btn-danger" onclick="supprimerClient('${c.id}')">Supprimer</button></td></tr>`;
         }).join('') || '<tr><td colspan="5" style="text-align:center; color:#64748b;">Aucun client enregistré.</td></tr>';
 
         document.getElementById('tableProduits').innerHTML = produitsTries.map((p) => {
-            let realIndex = db.produits.findIndex(orig => orig.nom === p.nom);
-            return `<tr><td>${p.nom}</td><td>${p.prix} DA</td><td><button class="btn-warning" onclick="preparerModifProduit(${realIndex})">Modifier</button><button class="btn-danger" onclick="supprimerProduit(${realIndex})">Supprimer</button></td></tr>`;
+            return `<tr><td>${p.nom}</td><td>${p.prix} DA</td><td><button class="btn-warning" onclick="preparerModifProduit('${p.id}')">Modifier</button><button class="btn-danger" onclick="supprimerProduit('${p.id}')">Supprimer</button></td></tr>`;
         }).join('') || '<tr><td colspan="3" style="text-align:center; color:#64748b;">Aucun produit enregistré.</td></tr>';
     }
 
@@ -507,7 +532,7 @@
     function remplirSelectRecherche() {
         let s = document.getElementById('selectClientRecherche');
         let valActuelle = s.value;
-        let clientsTries = [...db.clients].sort((a, b) => a.nom.localeCompare(b.nom));
+        let clientsTries = [...appData.clients].sort((a, b) => a.nom.localeCompare(b.nom));
         s.innerHTML = '<option value="">-- Sélectionnez un client pour voir son historique --</option>';
         clientsTries.forEach(c => s.innerHTML += `<option value="${c.nom}">${c.nom}</option>`);
         s.value = valActuelle;
@@ -518,7 +543,7 @@
         let container = document.getElementById('detailsClientContent');
         if(!clientNom) { container.style.display = 'none'; return; }
         
-        let clientObj = db.clients.find(c => c.nom === clientNom);
+        let clientObj = appData.clients.find(c => c.nom === clientNom);
         if(clientObj) {
             document.getElementById('typeReducClient').value = clientObj.reducType || 'montant';
             document.getElementById('valeurReducClient').value = clientObj.reducVal || 0;
@@ -526,20 +551,17 @@
         afficherHistoriqueClient();
     }
 
-    function appliquerReductionClient() {
+    async function appliquerReductionClient() {
         let clientNom = document.getElementById('selectClientRecherche').value;
         if(!clientNom) return alert('Sélectionnez d\'abord un client.');
 
         let typeReduc = document.getElementById('typeReducClient').value;
         let valeurReduc = parseFloat(document.getElementById('valeurReducClient').value) || 0;
 
-        let clientObj = db.clients.find(c => c.nom === clientNom);
+        let clientObj = appData.clients.find(c => c.nom === clientNom);
         if(clientObj) {
-            clientObj.reducType = typeReduc;
-            clientObj.reducVal = valeurReduc;
-            saveData();
-            alert('Réduction globale appliquée à la fiche du client !');
-            afficherHistoriqueClient();
+            await db.collection("clients").doc(clientObj.id).update({ reducType: typeReduc, reducVal: valeurReduc });
+            alert('Réduction globale mise à jour !');
         }
     }
 
@@ -551,10 +573,10 @@
 
         document.getElementById('titreClientFiche').innerText = "Fiche Client : " + clientNom;
 
-        let achatsCli = db.achats.map((a, index) => ({...a, indexGlobal: index})).filter(a => a.client === clientNom);
-        let paiementsCli = db.paiements.map((p, index) => ({...p, indexGlobal: index})).filter(p => p.client === clientNom);
+        let achatsCli = appData.achats.filter(a => a.client === clientNom);
+        let paiementsCli = appData.paiements.filter(p => p.client === clientNom);
 
-        let clientObj = db.clients.find(c => c.nom === clientNom);
+        let clientObj = appData.clients.find(c => c.nom === clientNom);
         let ancienCredit = clientObj ? (clientObj.ancienCredit || 0) : 0;
         let totAchatsBrut = achatsCli.reduce((sum, a) => sum + a.total, 0) + ancienCredit;
 
@@ -587,7 +609,7 @@
         document.getElementById('statPaye').innerText = totPaye + ' DA';
         document.getElementById('statSolde').innerText = solde + ' DA';
 
-        document.getElementById('tableHistAchats').innerHTML = achatsCli.map(a => `<tr><td>${a.date}</td><td>${a.produit}</td><td>${a.qte}</td><td>${a.prix} DA</td><td><b>${a.total} DA</b></td><td class="no-print"><button class="btn-warning" onclick="preparerModifAchat(${a.indexGlobal})">Modifier</button><button class="btn-danger" onclick="supprimerAchat(${a.indexGlobal})">Supprimer</button></td></tr>`).join('') || '<tr><td colspan="6">Aucun achat récent enregistré.</td></tr>';
+        document.getElementById('tableHistAchats').innerHTML = achatsCli.map(a => `<tr><td>${a.date}</td><td>${a.produit}</td><td>${a.qte}</td><td>${a.prix} DA</td><td><b>${a.total} DA</b></td><td class="no-print"><button class="btn-warning" onclick="preparerModifAchat('${a.id}')">Modifier</button><button class="btn-danger" onclick="supprimerAchat('${a.id}')">Supprimer</button></td></tr>`).join('') || '<tr><td colspan="6">Aucun achat enregistré.</td></tr>';
         
         let qteParProduit = {};
         achatsCli.forEach(a => { qteParProduit[a.produit] = (qteParProduit[a.produit] || 0) + a.qte; });
@@ -596,7 +618,7 @@
             `<tr><td><b>${q.produit}</b></td><td><b>${q.qteTotale}</b></td></tr>`
         ).join('') || '<tr><td colspan="2" style="text-align:center; color:#64748b;">Aucun produit acheté.</td></tr>';
 
-        document.getElementById('tableHistPaiements').innerHTML = paiementsCli.map(p => `<tr><td>${p.date}</td><td><b>${p.montant} DA</b></td><td>${p.mode}</td><td>${p.numero}</td><td class="no-print"><button class="btn-danger" onclick="supprimerPaiement(${p.indexGlobal})">Supprimer</button></td></tr>`).join('') || '<tr><td colspan="5">Aucun paiement enregistré.</td></tr>';
+        document.getElementById('tableHistPaiements').innerHTML = paiementsCli.map(p => `<tr><td>${p.date}</td><td><b>${p.montant} DA</b></td><td>${p.mode}</td><td>${p.numero}</td><td class="no-print"><button class="btn-danger" onclick="supprimerPaiement('${p.id}')">Supprimer</button></td></tr>`).join('') || '<tr><td colspan="5">Aucun paiement enregistré.</td></tr>';
     }
 
     function changerTri(critere) {
@@ -610,14 +632,14 @@
 
     function afficherHistoriqueGlobal() {
         let creditsParClient = {};
-        db.clients.forEach(c => {
-            let totA = db.achats.filter(a => a.client === c.nom).reduce((s, a) => s + a.total, 0) + (c.ancienCredit || 0);
+        appData.clients.forEach(c => {
+            let totA = appData.achats.filter(a => a.client === c.nom).reduce((s, a) => s + a.total, 0) + (c.ancienCredit || 0);
             if(c.reducVal && c.reducVal > 0) {
                 if(c.reducType === 'pourcent') totA = totA - (totA * (c.reducVal / 100));
                 else totA = totA - c.reducVal;
                 if(totA < 0) totA = 0;
             }
-            let totP = db.paiements.filter(p => p.client === c.nom).reduce((s, p) => s + p.montant, 0);
+            let totP = appData.paiements.filter(p => p.client === c.nom).reduce((s, p) => s + p.montant, 0);
             creditsParClient[c.nom] = { achats: totA, paye: totP, reste: totA - totP };
         });
 
@@ -628,7 +650,7 @@
             `<tr><td><b>${c.nom}</b></td><td>${c.achats} DA</td><td>${c.paye} DA</td><td><b style="color: ${c.reste > 0 ? 'var(--danger)' : 'var(--success)'};">${c.reste} DA</b></td></tr>`
         ).join('') || '<tr><td colspan="4" style="text-align:center; color:#64748b;">Aucun client enregistré.</td></tr>';
 
-        let achatsGlobal = [...db.achats];
+        let achatsGlobal = [...appData.achats];
         if(critereTri === 'date') {
             achatsGlobal.sort((a, b) => new Date(b.date) - new Date(a.date));
         } else if(critereTri === 'nom') {
@@ -640,7 +662,8 @@
         document.getElementById('tableGlobalAchats').innerHTML = achatsGlobal.map(a => `<tr><td>${a.date}</td><td><b>${a.client}</b></td><td>${a.produit}</td><td>${a.qte}</td><td>${a.prix} DA</td><td><b>${a.total} DA</b></td></tr>`).join('') || '<tr><td colspan="6" style="text-align:center; color:#64748b;">Aucun achat enregistré.</td></tr>';
     }
 
-    window.onload = remplirListes;
+    // Lancement de la synchronisation au démarrage
+    window.onload = demarrerSyncCloud;
 </script>
 </body>
 </html>
